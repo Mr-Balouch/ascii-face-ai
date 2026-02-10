@@ -1,85 +1,38 @@
 <!DOCTYPE html>
-<html lang="en">
+<html>
 <head>
 <meta charset="UTF-8">
-<title>ASCII Face (Upload + AI Camera)</title>
+<title>Image to ASCII TEST</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-
-<!-- MediaPipe (ONLY for Camera) -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-
 <style>
-body{
-  margin:0;
+body {
   background:black;
-  color:#e6d3a3;
+  color:#00ff88;
   font-family:monospace;
   text-align:center;
-  padding:10px;
 }
-.controls{
-  display:flex;
-  flex-wrap:wrap;
-  gap:8px;
-  justify-content:center;
-  margin-bottom:10px;
-}
-button,input{
-  background:#111;
-  color:#e6d3a3;
-  border:1px solid #444;
-  padding:8px 12px;
-}
-pre{
-  font-size:7px;
+pre {
+  font-size:6px;
   line-height:6px;
   white-space:pre;
-  display:inline-block;
-  max-width:100%;
-  overflow-x:auto;
-}
-video,canvas{display:none;}
-@media(max-width:600px){
-  pre{font-size:6px;line-height:5px;}
 }
 </style>
 </head>
-
 <body>
 
-<h2>ASCII Face Generator</h2>
-
-<div class="controls">
-  <button onclick="startCamera()">🎥 AI Camera</button>
-  <input type="file" id="upload" accept="image/*">
-  <input type="range" id="quality" min="120" max="220" value="160">
-  <button onclick="downloadTXT()">TXT</button>
-  <button onclick="downloadPNG()">PNG</button>
-</div>
-
-<video id="video" autoplay muted playsinline></video>
-<canvas id="canvas"></canvas>
-<pre id="output"></pre>
+<h3>UPLOAD IMAGE TEST</h3>
+<input type="file" id="upload" accept="image/*">
+<pre id="out"></pre>
+<canvas id="c" style="display:none"></canvas>
 
 <script>
-const video = document.getElementById("video");
 const upload = document.getElementById("upload");
-const canvas = document.getElementById("canvas");
-const ctx = canvas.getContext("2d");
-const output = document.getElementById("output");
-const quality = document.getElementById("quality");
+const out = document.getElementById("out");
+const c = document.getElementById("c");
+const ctx = c.getContext("2d");
+const chars = "@#*+=-:. ";
 
-const chars = "@%#*+=-:. ";
-let asciiText = "";
-let colorMap = [];
-
-/* ---------------- UPLOAD (NO AI, 100% WORKING) ---------------- */
-upload.addEventListener("change", () => {
-  if (video.srcObject) {
-    video.srcObject.getTracks().forEach(t => t.stop());
-  }
-
+upload.onchange = () => {
   const file = upload.files[0];
   if (!file) return;
 
@@ -87,132 +40,27 @@ upload.addEventListener("change", () => {
   img.src = URL.createObjectURL(file);
 
   img.onload = () => {
-    const q = parseInt(quality.value);
-    const w = q;
-    const h = Math.floor(q * 1.25);
+    const w = 100;
+    const h = 100;
+    c.width = w;
+    c.height = h;
+    ctx.drawImage(img, 0, 0, w, h);
 
-    const size = Math.min(img.width, img.height);
-    const sx = (img.width - size) / 2;
-    const sy = (img.height - size) / 3;
+    const d = ctx.getImageData(0,0,w,h).data;
+    let txt = "";
 
-    canvas.width = w;
-    canvas.height = h;
-    ctx.drawImage(img, sx, sy, size, size, 0, 0, w, h);
-
-    generateASCII(w, h);
-  };
-});
-
-/* ---------------- AI CAMERA ---------------- */
-const faceDetection = new FaceDetection({
-  locateFile: f =>
-    `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${f}`
-});
-faceDetection.setOptions({ model:"short", minDetectionConfidence:0.6 });
-
-faceDetection.onResults(results => {
-  if (!results.detections.length) return;
-
-  const box = results.detections[0].boundingBox;
-  const q = parseInt(quality.value);
-  const w = q;
-  const h = Math.floor(q * 1.25);
-
-  const sx = box.xCenter * canvas.width - box.width * canvas.width / 2;
-  const sy = box.yCenter * canvas.height - box.height * canvas.height / 2;
-  const sw = box.width * canvas.width;
-  const sh = box.height * canvas.height;
-
-  canvas.width = w;
-  canvas.height = h;
-  ctx.drawImage(video, sx, sy, sw, sh, 0, 0, w, h);
-
-  generateASCII(w, h);
-});
-
-async function startCamera(){
-  upload.value="";
-  const stream = await navigator.mediaDevices.getUserMedia({video:true});
-  video.srcObject = stream;
-
-  const cam = new Camera(video,{
-    onFrame: async ()=>{
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      ctx.drawImage(video,0,0);
-      await faceDetection.send({image:canvas});
-    },
-    width:640,height:480
-  });
-  cam.start();
-}
-
-/* ---------------- ASCII CORE ---------------- */
-function generateASCII(w,h){
-  const data = ctx.getImageData(0,0,w,h).data;
-  asciiText="";
-  colorMap=[];
-
-  for(let y=0;y<h;y++){
-    let row=[];
-    for(let x=0;x<w;x++){
-      const i=(y*w+x)*4;
-      const r=data[i], g=data[i+1], b=data[i+2];
-      const br=0.299*r+0.587*g+0.114*b;
-      const idx=Math.floor((br/255)*(chars.length-1));
-      asciiText+=chars[idx];
-      row.push(`rgb(${r},${g},${b})`);
+    for (let y=0;y<h;y++){
+      for (let x=0;x<w;x++){
+        const i=(y*w+x)*4;
+        const b=(d[i]+d[i+1]+d[i+2])/3;
+        txt += chars[Math.floor(b/255*(chars.length-1))];
+      }
+      txt+="\n";
     }
-    asciiText+="\n";
-    colorMap.push(row);
-  }
-  render();
-}
 
-function render(){
-  output.innerHTML="";
-  asciiText.split("\n").forEach((l,y)=>{
-    const d=document.createElement("div");
-    [...l].forEach((c,x)=>{
-      const s=document.createElement("span");
-      s.textContent=c;
-      s.style.color=colorMap[y]?.[x]||"#e6d3a3";
-      d.appendChild(s);
-    });
-    output.appendChild(d);
-  });
-}
-
-/* ---------------- DOWNLOAD ---------------- */
-function downloadTXT(){
-  if(!asciiText) return;
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(new Blob([asciiText]));
-  a.download="ascii.txt";
-  a.click();
-}
-function downloadPNG(){
-  if(!asciiText) return;
-  const lines=asciiText.split("\n");
-  const fs=7,lh=6;
-  const c=document.createElement("canvas");
-  const cx=c.getContext("2d");
-  c.width=lines[0].length*fs;
-  c.height=lines.length*lh;
-  cx.fillStyle="black";
-  cx.fillRect(0,0,c.width,c.height);
-  cx.font=`${fs}px monospace`;
-  lines.forEach((l,y)=>{
-    [...l].forEach((ch,x)=>{
-      cx.fillStyle=colorMap[y]?.[x]||"#e6d3a3";
-      cx.fillText(ch,x*fs,y*lh);
-    });
-  });
-  const a=document.createElement("a");
-  a.href=c.toDataURL("image/png");
-  a.download="ascii.png";
-  a.click();
-}
+    out.textContent = txt;
+  };
+};
 </script>
 
 </body>
