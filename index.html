@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>AI Face → ASCII (Upload + Camera)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- MediaPipe Face Detection -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/face_detection.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<style>
+body{
+  margin:0;
+  background:black;
+  color:#e6d3a3;
+  font-family:monospace;
+  text-align:center;
+  padding:10px;
+}
+.controls{
+  display:flex;
+  flex-wrap:wrap;
+  gap:8px;
+  justify-content:center;
+  margin-bottom:10px;
+}
+button,input{
+  background:#111;
+  color:#e6d3a3;
+  border:1px solid #444;
+  padding:8px 12px;
+  cursor:pointer;
+}
+pre{
+  font-size:7px;
+  line-height:6px;
+  white-space:pre;
+  display:inline-block;
+  max-width:100%;
+  overflow-x:auto;
+}
+video,canvas{display:none;}
+@media(max-width:600px){
+  pre{font-size:6px;line-height:5px;}
+}
+</style>
+</head>
+
+<body>
+
+<h2>🤖 AI Face → ASCII (UPLOAD + CAMERA)</h2>
+
+<div class="controls">
+  <button onclick="startCamera()">🎥 Camera</button>
+  <input type="file" id="upload" accept="image/*">
+  <label>Quality</label>
+  <input type="range" id="quality" min="120" max="220" value="160">
+  <button onclick="downloadTXT()">TXT</button>
+  <button onclick="downloadPNG()">PNG</button>
+</div>
+
+<video id="video" autoplay muted playsinline></video>
+<canvas id="canvas"></canvas>
+<pre id="output"></pre>
+
+<script>
+const video = document.getElementById("video");
+const upload = document.getElementById("upload");
+const canvas = document.getElementById("canvas");
+const ctx = canvas.getContext("2d");
+const output = document.getElementById("output");
+const qualitySlider = document.getElementById("quality");
+
+const chars = "@%#*+=-:. ";
+let asciiText = "";
+let colorMap = [];
+let sourceImage = null;
+
+/* ---------- MediaPipe ---------- */
+const faceDetection = new FaceDetection({
+  locateFile: file =>
+    `https://cdn.jsdelivr.net/npm/@mediapipe/face_detection/${file}`
+});
+
+faceDetection.setOptions({
+  model: "short",
+  minDetectionConfidence: 0.6
+});
+
+faceDetection.onResults(onResults);
+
+/* ---------- CAMERA ---------- */
+async function startCamera(){
+  upload.value = "";
+  const stream = await navigator.mediaDevices.getUserMedia({video:true});
+  video.srcObject = stream;
+
+  const camera = new Camera(video,{
+    onFrame: async ()=>{
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      ctx.drawImage(video,0,0);
+      sourceImage = video;
+      await faceDetection.send({image:canvas});
+    },
+    width:640,
+    height:480
+  });
+  camera.start();
+}
+
+/* ---------- IMAGE UPLOAD ---------- */
+upload.addEventListener("change",()=>{
+  if(video.srcObject){
+    video.srcObject.getTracks().forEach(t=>t.stop());
+  }
+
+  const file = upload.files[0];
+  if(!file) return;
+
+  const img = new Image();
+  img.src = URL.createObjectURL(file);
+
+  img.onload = async ()=>{
+    sourceImage = img;
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img,0,0);
+    await faceDetection.send({image:canvas});
+  };
+});
+
+/* ---------- FACE RESULT ---------- */
+function onResults(results){
+  if(!results.detections.length){
+    alert("Face detect nahi hua 😕");
+    return;
+  }
+  generateASCII(results.detections[0].boundingBox);
+}
+
+/* ---------- ASCII GENERATION ---------- */
+function generateASCII(box){
+  const q = parseInt(qualitySlider.value);
+  const w = q;
+  const h = Math.floor(q * 1.25);
+
+  const srcW = canvas.width;
+  const srcH = canvas.height;
+
+  const sx = box.xCenter * srcW - box.width * srcW / 2;
+  const sy = box.yCenter * srcH - box.height * srcH / 2;
+  const sw = box.width * srcW;
+  const sh = box.height * srcH;
+
+  canvas.width = w;
+  canvas.height = h;
+  ctx.drawImage(sourceImage, sx, sy, sw, sh, 0, 0, w, h);
+
+  const data = ctx.getImageData(0,0,w,h).data;
+  asciiText = "";
+  colorMap = [];
+
+  for(let y=0;y<h;y++){
+    let row=[];
+    for(let x=0;x<w;x++){
+      const i=(y*w+x)*4;
+      const r=data[i], g=data[i+1], b=data[i+2];
+      const brightness = 0.299*r + 0.587*g + 0.114*b;
+      const idx = Math.floor((brightness/255)*(chars.length-1));
+      asciiText += chars[idx];
+      row.push(`rgb(${r},${g},${b})`);
+    }
+    asciiText += "\n";
+    colorMap.push(row);
+  }
+  renderASCII();
+}
+
+/* ---------- RENDER ---------- */
+function renderASCII(){
+  output.innerHTML="";
+  asciiText.split("\n").forEach((line,y)=>{
+    const div=document.createElement("div");
+    [...line].forEach((c,x)=>{
+      const span=document.createElement("span");
+      span.textContent=c;
+      span.style.color=colorMap[y]?.[x] || "#e6d3a3";
+      div.appendChild(span);
+    });
+    output.appendChild(div);
+  });
+}
+
+/* ---------- DOWNLOAD ---------- */
+function downloadTXT(){
+  if(!asciiText) return;
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([asciiText],{type:"text/plain"}));
+  a.download="ascii_face.txt";
+  a.click();
+}
+
+function downloadPNG(){
+  if(!asciiText) return;
+  const lines=asciiText.split("\n");
+  const fs=7, lh=6;
+  const c=document.createElement("canvas");
+  const cx=c.getContext("2d");
+
+  c.width = lines[0].length * fs;
+  c.height = lines.length * lh;
+
+  cx.fillStyle="black";
+  cx.fillRect(0,0,c.width,c.height);
+  cx.font = `${fs}px monospace`;
+
+  lines.forEach((line,y)=>{
+    [...line].forEach((ch,x)=>{
+      cx.fillStyle=colorMap[y]?.[x] || "#e6d3a3";
+      cx.fillText(ch, x*fs, y*lh);
+    });
+  });
+
+  const a=document.createElement("a");
+  a.href=c.toDataURL("image/png");
+  a.download="ascii_face.png";
+  a.click();
+}
+</script>
+
+</body>
+</html>
